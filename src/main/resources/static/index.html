@@ -1,1 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chemical Route Analyzer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen py-8 px-4 font-sans">
+  <div class="max-w-5xl mx-auto space-y-6">
+    <header class="flex items-center justify-between border-b border-slate-800 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold text-cyan-400">Chemical Route Analyzer</h1>
+        <p class="text-xs text-slate-400">CDK Physical Metrics + Gemini AI Mechanisms</p>
+      </div>
+      <button onclick="openKeyModal()" id="keyStatusBtn" class="flex items-center space-x-2 px-3 py-1.5 rounded-lg border transition-all">
+        <span id="keyDot" class="w-2 h-2 rounded-full"></span>
+        <span id="keyText" class="text-xs font-mono">Checking Key...</span>
+      </button>
+    </header>
 
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+      <div>
+        <label class="block text-xs font-mono uppercase text-slate-400 mb-1">Reaction Name</label>
+        <input id="routeTitle" type="text" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-200" value="Acylation of Ethylamine" />
+      </div>
+      <div>
+        <label class="block text-xs font-mono uppercase text-slate-400 mb-1">Reaction Equation (Reactants>>Products)</label>
+        <textarea id="stepsInput" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-200">CC(=O)Cl.CCN>>CC(=O)NCC.Cl</textarea>
+      </div>
+      <div class="flex justify-end">
+        <button id="runBtn" onclick="runFullAnalysis()" class="px-6 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-semibold text-xs tracking-wider uppercase text-white transition-all">
+          Run Automated Analysis
+        </button>
+      </div>
+    </div>
+
+    <div id="errorBanner" class="hidden p-4 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs"></div>
+    <div id="results" class="hidden space-y-6"></div>
+  </div>
+
+  <!-- API Key Modal -->
+  <div id="keyModal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center">
+        <h3 class="text-base font-bold text-slate-100">Set Google Gemini API Key</h3>
+        <button onclick="closeKeyModal()" class="text-slate-500 hover:text-slate-300 text-sm">✕</button>
+      </div>
+      <p class="text-xs text-slate-400">Stored locally in your browser to authenticate with Gemini models.</p>
+      <input id="keyInput" type="password" placeholder="AIzaSy..." oninput="resetValidationState()" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500" />
+      <div id="validationFeedback" class="hidden text-xs p-2.5 rounded-lg border"></div>
+      <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+        <button onclick="clearSavedKey()" class="text-xs text-rose-400 hover:underline">Remove Key</button>
+        <div class="flex items-center space-x-2">
+          <button id="verifyBtn" onclick="verifyApiKey()" class="px-3.5 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-cyan-400 text-xs font-semibold">Verify Key</button>
+          <button onclick="saveApiKey()" class="px-4 py-1.5 rounded-lg bg-cyan-600 text-white text-xs font-semibold">Save Key</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'GEMINI_USER_API_KEY';
+
+    function checkKeyStatus() {
+      const key = localStorage.getItem(STORAGE_KEY);
+      const dot = document.getElementById('keyDot'), text = document.getElementById('keyText'), btn = document.getElementById('keyStatusBtn');
+      if (key && key.trim().length > 0) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+        text.innerText = 'Key Active (' + key.slice(0, 4) + '...)';
+        btn.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        text.innerText = 'Enter API Key';
+        btn.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300';
+      }
+    }
+
+    function openKeyModal() { document.getElementById('keyInput').value = localStorage.getItem(STORAGE_KEY) || ''; resetValidationState(); document.getElementById('keyModal').classList.remove('hidden'); }
+    function closeKeyModal() { document.getElementById('keyModal').classList.add('hidden'); }
+    function resetValidationState() { const fb = document.getElementById('validationFeedback'); fb.className = 'hidden'; fb.innerText = ''; }
+
+    async function verifyApiKey() {
+      const key = document.getElementById('keyInput').value.trim(), verifyBtn = document.getElementById('verifyBtn'), fb = document.getElementById('validationFeedback');
+      if (!key) { fb.className = 'text-xs p-2.5 rounded-lg border border-rose-800 bg-rose-950/60 text-rose-300 block'; fb.innerText = 'Please enter a key.'; return; }
+      verifyBtn.disabled = true; verifyBtn.innerHTML = 'Testing...';
+      fb.className = 'text-xs p-2.5 rounded-lg border border-slate-700 bg-slate-950 text-slate-400 block'; fb.innerText = 'Contacting Gemini API...';
+      try {
+        const res = await fetch('/api/routes/verify-key', { method: 'POST', headers: { 'X-Gemini-Api-Key': key } });
+        const data = await res.json();
+        if (res.ok && data.valid) { fb.className = 'text-xs p-2.5 rounded-lg border border-emerald-800/80 bg-emerald-950/60 text-emerald-300 block'; fb.innerText = '✓ Key verified successfully.'; } 
+        else { fb.className = 'text-xs p-2.5 rounded-lg border border-rose-800/80 bg-rose-950/60 text-rose-300 block'; fb.innerText = '✕ ' + (data.error || 'Verification failed.'); }
+      } catch (err) { fb.className = 'text-xs p-2.5 rounded-lg border border-rose-800/80 bg-rose-950/60 text-rose-300 block'; fb.innerText = '✕ Network error.'; }
+      verifyBtn.disabled = false; verifyBtn.innerHTML = 'Verify Key';
+    }
+
+    function saveApiKey() { const key = document.getElementById('keyInput').value.trim(); if (!key) { clearSavedKey(); return; } localStorage.setItem(STORAGE_KEY, key); closeKeyModal(); checkKeyStatus(); }
+    function clearSavedKey() { localStorage.removeItem(STORAGE_KEY); document.getElementById('keyInput').value = ''; resetValidationState(); closeKeyModal(); checkKeyStatus(); }
+
+    window.addEventListener('DOMContentLoaded', () => { checkKeyStatus(); if (!localStorage.getItem(STORAGE_KEY)) openKeyModal(); });
+
+    async function runFullAnalysis() {
+      const errBanner = document.getElementById('errorBanner'), apiKey = localStorage.getItem(STORAGE_KEY);
+      errBanner.classList.add('hidden');
+      if (!apiKey) { openKeyModal(); return; }
+
+      const runBtn = document.getElementById('runBtn');
+      runBtn.disabled = true; runBtn.innerText = 'Analyzing...';
+      try {
+        const res = await fetch('/api/routes/analyze', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Gemini-Api-Key': apiKey },
+          body: JSON.stringify({ routeTitle: document.getElementById('routeTitle').value, reactionSmilesSteps: document.getElementById('stepsInput').value.split('\n').map(l=>l.trim()).filter(Boolean) })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed analysis.');
+        renderOutput(data);
+      } catch (err) { errBanner.innerText = err.message; errBanner.classList.remove('hidden'); }
+      finally { runBtn.disabled = false; runBtn.innerText = 'Run Automated Analysis'; }
+    }
+
+    function renderOutput(data) {
+      const resContainer = document.getElementById('results');
+      resContainer.classList.remove('hidden');
+      const { metrics, mechanism } = data;
+
+      let stepsHtml = mechanism.steps?.map(s => `
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 mt-4">
+          <div class="flex justify-between items-center"><span class="text-xs font-mono font-bold text-cyan-400">Step ${s.stepNumber}: ${s.stepName}</span><span class="text-[11px] font-mono text-slate-400">${s.intermediateSmiles||''}</span></div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div class="bg-slate-950 p-3 rounded-lg border border-slate-800/80"><span class="text-[10px] text-cyan-400 uppercase font-mono block mb-1">FMO Interaction</span><p class="text-slate-300 font-mono">${s.fmoInteraction||'N/A'}</p></div>
+            <div class="bg-slate-950 p-3 rounded-lg border border-slate-800/80"><span class="text-[10px] text-amber-400 uppercase font-mono block mb-1">Driving Force</span><p class="text-slate-300">${s.drivingForce||'N/A'}</p></div>
+          </div>
+          <div class="bg-slate-950 p-3 rounded-lg border border-slate-800/80"><span class="text-[10px] text-slate-400 uppercase font-mono block mb-1">Electron Movement</span><p class="text-xs text-slate-300">${s.electronMovement||''}</p></div>
+        </div>`).join('') || '';
+
+      resContainer.innerHTML = `
+        <div class="p-6 bg-slate-900 border border-slate-800 rounded-2xl flex justify-between items-center">
+          <div><h2 class="text-xl font-bold text-white">${mechanism.reactionName || metrics.routeTitle}</h2><p class="text-xs text-slate-400">${metrics.totalSteps} Steps Analyzed</p></div>
+          <div class="text-right"><span class="text-[10px] font-mono uppercase text-slate-500 block">Atom Economy</span><span class="text-xl font-bold font-mono text-cyan-400">${metrics.overallAtomEconomyPercent}%</span></div>
+        </div>
+        ${stepsHtml}
+      `;
+    }
+  </script>
+</body>
+</html>
